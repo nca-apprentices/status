@@ -14,6 +14,9 @@ sites:
     url: https://ops.nca-apprentices.dev
     expectedStatusCodes: [200, 302]
 
+# Each outage issue notifies its assignees, watching the repository or not.
+assignees: [kevin-nca]
+
 status-website:
   cname: status.nca-apprentices.dev
   name: nca-apprentices status
