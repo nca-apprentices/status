@@ -15,7 +15,7 @@ sites:
     expectedStatusCodes: [200, 302]
 
 status-website:
-  baseUrl: /status
+  cname: status.nca-apprentices.dev
   name: nca-apprentices status
   introTitle: "**nca-apprentices** services"
   introMessage: Checked from GitHub Actions about every 5 minutes. Each outage opens an issue in this repository.
