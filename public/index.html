@@ -108,6 +108,9 @@
     </main>
     <script>
       const REFRESH_MS = 60_000;
+      // Below this share of passed checks a bar is red. In a 2-hour bar it
+      // takes about 72 s down, so a single failed check stays yellow.
+      const DOWN_BELOW = 0.99;
 
       const color = (up) =>
         up === null ? "var(--none)" : up ? "var(--up)" : "var(--down)";
@@ -119,7 +122,9 @@
         if (bucket.up === bucket.total) {
           return "var(--up)";
         }
-        return bucket.up === 0 ? "var(--down)" : "var(--partial)";
+        return bucket.up / bucket.total < DOWN_BELOW
+          ? "var(--down)"
+          : "var(--partial)";
       }
 
       // One bar per bucket, oldest first, grey where nothing was checked.
