@@ -1,0 +1,54 @@
+# `mise tasks` lists the tasks, and `mise run <task>` runs one. Each installs
+# the dependencies first when package-lock.json has changed.
+[tools]
+node = "24.21.0"
+
+[env]
+_.path = ["node_modules/.bin"]
+
+[tasks.install]
+description = "Install the dependencies"
+run = "npm ci"
+sources = ["package-lock.json"]
+outputs = ["node_modules/.package-lock.json"]
+
+[tasks.login]
+description = "Sign wrangler in to Cloudflare, once per machine"
+depends = ["install"]
+run = "wrangler login"
+
+[tasks.dev]
+description = "Run the Worker on localhost:8787 against a local database"
+depends = ["install"]
+run = [
+  "test -f .dev.vars || echo HEARTBEAT_TOKEN=dev > .dev.vars",
+  "wrangler d1 migrations apply status --local",
+  "wrangler dev --test-scheduled",
+]
+
+[tasks.cron]
+description = "Run one cron run against `mise run dev`, which takes a minute"
+run = "curl -fsS 'http://localhost:8787/__scheduled?cron=*+*+*+*+*'"
+
+[tasks.check]
+description = "Typecheck the Worker"
+depends = ["install"]
+run = "tsc"
+
+[tasks.deploy]
+description = "Migrate the database and deploy the Worker, as CI does on main"
+depends = ["install"]
+run = [
+  "wrangler d1 migrations apply status --remote",
+  "wrangler deploy",
+]
+
+[tasks.tail]
+description = "Stream the deployed Worker's requests and cron runs"
+depends = ["install"]
+run = "wrangler tail status --format pretty"
+
+[tasks.secret]
+description = "Set the heartbeat token, the same as Alertmanager's status-heartbeat"
+depends = ["install"]
+run = "wrangler secret put HEARTBEAT_TOKEN"

@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "status",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // Every minute, the shortest interval cron takes. One of the five cron
+  // triggers the Free plan allows per account.
+  "triggers": { "crons": ["* * * * *"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "status",
+      "database_id": "11546279-ff56-490e-83f5-7184d7492c67",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "assets": { "directory": "public" },
+  "observability": { "enabled": true },
+}

@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>nca-apprentices status</title>
+    <style>
+      :root {
+        --bg: #fafafa;
+        --fg: #1a1a1a;
+        --muted: #666;
+        --card: #fff;
+        --border: #e2e2e2;
+        --up: #2da44e;
+        --partial: #d4a72c;
+        --down: #cf222e;
+        --none: #d8d8d8;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111;
+          --fg: #eee;
+          --muted: #999;
+          --card: #1b1b1b;
+          --border: #2c2c2c;
+          --none: #333;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 32px 16px;
+      }
+      h1 {
+        font-size: 1.5rem;
+        margin: 0 0 16px;
+      }
+      #summary {
+        padding: 12px 16px;
+        border-radius: 8px;
+        color: #fff;
+        background: var(--none);
+        font-weight: 600;
+      }
+      .monitor {
+        margin-top: 16px;
+        padding: 16px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+      .head {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .name::before {
+        content: "";
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        margin-right: 8px;
+        border-radius: 50%;
+        background: var(--state);
+      }
+      .detail,
+      footer {
+        color: var(--muted);
+        font-size: 0.875rem;
+      }
+      .bars {
+        display: flex;
+        gap: 2px;
+        height: 28px;
+        margin-top: 8px;
+      }
+      .bars span {
+        flex: 1;
+        border-radius: 2px;
+        background: var(--none);
+      }
+      footer {
+        margin-top: 24px;
+      }
+      a {
+        color: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>nca-apprentices status</h1>
+      <div id="summary">Loading…</div>
+      <div id="monitors"></div>
+      <footer>
+        Checked from Cloudflare every 10 seconds. Each bar is 2 hours of the
+        last 7 days. Source on
+        <a href="https://github.com/nca-apprentices/status">GitHub</a>.
+      </footer>
+    </main>
+    <script>
+      const REFRESH_MS = 60_000;
+
+      const color = (up) =>
+        up === null ? "var(--none)" : up ? "var(--up)" : "var(--down)";
+
+      function bucketColor(bucket) {
+        if (!bucket) {
+          return "var(--none)";
+        }
+        if (bucket.up === bucket.total) {
+          return "var(--up)";
+        }
+        return bucket.up === 0 ? "var(--down)" : "var(--partial)";
+      }
+
+      // One bar per bucket, oldest first, grey where nothing was checked.
+      function bars(status, buckets) {
+        const byStart = new Map(buckets.map((b) => [b.start, b]));
+        const spans = [];
+
+        for (let i = status.count - 1; i >= 0; i--) {
+          const start = status.newest - i * status.bucketMs;
+          const bucket = byStart.get(start);
+          const time = new Date(start).toLocaleString([], {
+            weekday: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          const span = document.createElement("span");
+          span.style.background = bucketColor(bucket);
+          span.title = bucket
+            ? `${time}: ${((100 * bucket.up) / bucket.total).toFixed(2)}% up`
+            : `${time}: no data`;
+          spans.push(span);
+        }
+        return spans;
+      }
+
+      function uptime(buckets) {
+        const up = buckets.reduce((n, b) => n + b.up, 0);
+        const total = buckets.reduce((n, b) => n + b.total, 0);
+        return total ? `${((100 * up) / total).toFixed(2)}%` : "–";
+      }
+
+      function card(status, m) {
+        const el = document.createElement("section");
+        el.className = "monitor";
+        el.style.setProperty("--state", color(m.up));
+        el.innerHTML = `
+          <div class="head">
+            <span class="name"></span>
+            <span class="uptime"></span>
+          </div>
+          <div class="detail"></div>
+          <div class="bars"></div>`;
+        el.querySelector(".name").textContent = m.name;
+        el.querySelector(".uptime").textContent = uptime(m.buckets);
+        el.querySelector(".detail").textContent = m.detail;
+        el.querySelector(".bars").append(...bars(status, m.buckets));
+        return el;
+      }
+
+      async function render() {
+        const summary = document.getElementById("summary");
+
+        try {
+          const response = await fetch("/api/status");
+          const status = await response.json();
+          const down = status.monitors.filter((m) => m.up === false);
+
+          summary.textContent = down.length
+            ? `Down: ${down.map((m) => m.name).join(", ")}`
+            : "All systems operational";
+          summary.style.background = down.length ? "var(--down)" : "var(--up)";
+          document
+            .getElementById("monitors")
+            .replaceChildren(...status.monitors.map((m) => card(status, m)));
+        } catch {
+          summary.textContent = "Status unavailable";
+          summary.style.background = "var(--none)";
+        }
+      }
+
+      render();
+      setInterval(render, REFRESH_MS);
+    </script>
+  </body>
+</html>
