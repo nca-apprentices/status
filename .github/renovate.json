@@ -1,4 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>nca-apprentices/.github", ":pinAllExceptPeerDependencies"]
+  "extends": ["github>nca-apprentices/.github", ":pinAllExceptPeerDependencies"],
+  "packageRules": [
+    {
+      "description": "Everything arrives as one PR per schedule window, so packages that must agree, such as vitest and its Cloudflare plugin, update together.",
+      "matchPackageNames": ["*"],
+      "groupName": "dependencies",
+      "separateMajorMinor": false
+    }
+  ]
 }
