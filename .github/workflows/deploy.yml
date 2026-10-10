@@ -20,13 +20,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
       - name: Check
         run: mise run check
+      # Only this step gets the token, so a PR's dependencies never see it.
       - name: Deploy
         if: github.event_name == 'push'
         run: mise run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
