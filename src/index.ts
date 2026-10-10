@@ -46,12 +46,13 @@ const BUCKET_MS = 2 * 60 * MINUTE_MS;
 const HISTORY_BUCKETS = 84;
 
 // Cron fires once a minute at most, so each run checks the sites in rounds 10
-// seconds apart. A round times out before the next starts. Six rounds of two
-// sites stay well under the Free plan's 50 subrequests per run, and the run writes
-// D1 once, so the rate doesn't spend the daily writes.
+// seconds apart. A check's two attempts time out before the next round starts.
+// Six rounds of two sites, at most 24 requests, stay under the Free plan's 50
+// subrequests per run, and the run writes D1 once, so the rate doesn't spend
+// the daily writes.
 const ROUND_INTERVAL_MS = 10 * SECOND_MS;
 const ROUNDS = MINUTE_MS / ROUND_INTERVAL_MS;
-const CHECK_TIMEOUT_MS = 8 * SECOND_MS;
+const ATTEMPT_TIMEOUT_MS = 4 * SECOND_MS;
 
 // One check per app, through its deepest public path. Every site must answer
 // 200 itself. A redirect, such as to a login, is down.
@@ -125,14 +126,38 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+// A check retries a failed attempt once, so a single request held up between
+// Cloudflare and the node doesn't count as down. An app that is down fails
+// both attempts.
 async function probe(site: Site): Promise<Check> {
+  const first = await attempt(site);
+
+  if (first.up) {
+    return first;
+  }
+
+  return attempt(site);
+}
+
+// Logs each failed attempt to Workers Logs, since D1 keeps only the newest.
+async function attempt(site: Site): Promise<Check> {
+  const check = await request(site);
+
+  if (!check.up) {
+    console.warn({ site: site.id, detail: check.detail });
+  }
+
+  return check;
+}
+
+async function request(site: Site): Promise<Check> {
   const start = Date.now();
 
   try {
     const response = await fetch(site.url, {
       ...site.init,
       redirect: "manual",
-      signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+      signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
     });
     await response.body?.cancel();
 

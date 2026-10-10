@@ -5,8 +5,9 @@ monitor of the cluster. A Cloudflare Worker on the Free plan checks:
 
 - Every 10 seconds, each app through its deepest public path: ncaleague's
   `/health`, which pings the database, and jjforge's `POST /api/v1/echo`,
-  which passes through the server and vcs. Each must answer 200. A redirect
-  counts as down.
+  which passes through the server and vcs. Each must answer 200 within two
+  tries of 4 seconds. A redirect counts as down. Workers Logs keeps each
+  failed try.
 - Every minute, the heartbeats. Alertmanager posts the always-firing
   `Watchdog` to `/heartbeat/alerts` every minute. Five minutes without a post
   means vmalert, vmsingle, or Alertmanager is down. A new heartbeat is one
@@ -27,7 +28,7 @@ The page in `public/` reads them from `/api/status`.
 | D1 rows written | 100,000 a day   | About 15,000                            |
 | D1 rows read    | 5,000,000 a day | About 260 per page view                 |
 | Cron triggers   | 5 per account   | 1                                       |
-| Subrequests     | 50 per run      | 12                                      |
+| Subrequests     | 50 per run      | 12, and up to 24 with retries           |
 | CPU time        | 10 ms per run   | Waiting on `fetch` and D1 doesn't count |
 
 Workers Free needs no payment method. A limit reached fails requests until
