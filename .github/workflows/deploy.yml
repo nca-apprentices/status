@@ -25,6 +25,8 @@ jobs:
       - uses: jdx/mise-action@v5
       - name: Check
         run: mise run check
+      - name: Test
+        run: mise run test
       # Only this step gets the token, so a PR's dependencies never see it.
       - name: Deploy
         if: github.event_name == 'push'

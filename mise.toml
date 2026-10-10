@@ -31,9 +31,14 @@ description = "Run one cron run against `mise run dev`, which takes a minute"
 run = "curl -fsS 'http://localhost:8787/__scheduled?cron=*+*+*+*+*'"
 
 [tasks.check]
-description = "Typecheck the Worker"
+description = "Typecheck the Worker and its tests"
 depends = ["install"]
-run = "tsc"
+run = ["tsc", "tsc -p test"]
+
+[tasks.test]
+description = "Run the tests in workerd against a local database"
+depends = ["install"]
+run = "vitest run"
 
 [tasks.deploy]
 description = "Migrate the database and deploy the Worker, as CI does on main"
@@ -52,3 +57,8 @@ run = "wrangler tail status --format pretty"
 description = "Set the heartbeat token, the same as Alertmanager's status-heartbeat"
 depends = ["install"]
 run = "wrangler secret put HEARTBEAT_TOKEN"
+
+[tasks.github]
+description = "Set the GitHub token that opens and closes outage issues in infra"
+depends = ["install"]
+run = "wrangler secret put GITHUB_TOKEN"

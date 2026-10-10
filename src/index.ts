@@ -4,6 +4,7 @@
 interface Env {
   DB: D1Database;
   HEARTBEAT_TOKEN: string;
+  GITHUB_TOKEN: string;
 }
 
 interface Site {
@@ -87,6 +88,12 @@ const HEARTBEATS: Heartbeat[] = [
 const MONITORS = [...SITES, ...HEARTBEATS];
 const HEARTBEAT_PATH = /^\/heartbeat\/([a-z-]+)$/;
 
+// Outages open issues next to the cluster's own alerts, so whoever watches
+// infra gets both.
+const ISSUES_URL = "https://api.github.com/repos/nca-apprentices/infra/issues";
+const ALERT_LABEL = "alert";
+const PAGE_URL = "https://status.nca-apprentices.dev";
+
 export default {
   async scheduled(controller, env) {
     const start = controller.scheduledTime;
@@ -109,6 +116,7 @@ export default {
       ...(await heartbeats(env, Date.now())),
     ];
     await record(env, tallies, start);
+    await alert(env, tallies);
   },
 
   async fetch(request, env) {
@@ -231,6 +239,77 @@ async function record(env: Env, tallies: Tally[], at: number) {
 
 function bucketStart(at: number): number {
   return Math.floor(at / BUCKET_MS) * BUCKET_MS;
+}
+
+// A monitor opens an issue once no check of the run passed, so one slow
+// round opens none, and closes it once its newest check passes. A GitHub
+// error leaves the outage as it was, and the next run tries again.
+async function alert(env: Env, tallies: Tally[]) {
+  const { results } = await env.DB.prepare(
+    "SELECT monitor, issue FROM outage",
+  ).all<{ monitor: string; issue: number }>();
+  const open = new Map(results.map((r) => [r.monitor, r.issue]));
+
+  for (const t of tallies) {
+    const issue = open.get(t.monitor);
+
+    try {
+      if (issue === undefined && t.ups === 0) {
+        await openIssue(env, t);
+      } else if (issue !== undefined && t.up) {
+        await closeIssue(env, t, issue);
+      }
+    } catch (error) {
+      console.error({ monitor: t.monitor, error: String(error) });
+    }
+  }
+}
+
+async function openIssue(env: Env, t: Tally) {
+  const name = MONITORS.find((m) => m.id === t.monitor)?.name ?? t.monitor;
+  const { number } = await github<{ number: number }>(env, "POST", ISSUES_URL, {
+    title: `${name} is down`,
+    body: `${t.detail}\n\n${PAGE_URL}`,
+    labels: [ALERT_LABEL],
+  });
+
+  await env.DB.prepare("INSERT INTO outage (monitor, issue) VALUES (?1, ?2)")
+    .bind(t.monitor, number)
+    .run();
+}
+
+async function closeIssue(env: Env, t: Tally, issue: number) {
+  await github(env, "POST", `${ISSUES_URL}/${issue}/comments`, {
+    body: `Back up: ${t.detail}`,
+  });
+  await github(env, "PATCH", `${ISSUES_URL}/${issue}`, { state: "closed" });
+  await env.DB.prepare("DELETE FROM outage WHERE monitor = ?1")
+    .bind(t.monitor)
+    .run();
+}
+
+async function github<T>(
+  env: Env,
+  method: string,
+  url: string,
+  body: object,
+): Promise<T> {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "nca-apprentices-status",
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    throw new Error(`GitHub ${method} ${url}: ${response.status}`);
+  }
+
+  return response.json<T>();
 }
 
 // The sender passes the token as a bearer token. Alertmanager's route to
