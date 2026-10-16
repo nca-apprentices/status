@@ -3,9 +3,10 @@
 
 import { MINUTE_MS, type Tally } from "./monitors";
 
-// The page shows the last 7 days in bars of 2 hours.
-export const BUCKET_MS = 2 * 60 * MINUTE_MS;
-export const HISTORY_BUCKETS = 84;
+// The page shows the last 90 days in bars of one UTC day, which reads as few
+// rows as 7 days of 2-hour bars did.
+export const BUCKET_MS = 24 * 60 * MINUTE_MS;
+export const HISTORY_BUCKETS = 90;
 
 export type Beat = { monitor: string; at: number };
 export type Latest = {
@@ -19,6 +20,11 @@ export type Bucket = {
   monitor: string;
   up: number;
   total: number;
+};
+export type Incident = {
+  monitor: string;
+  started: number;
+  ended: number | null;
 };
 export type Issue = {
   monitor: string;
@@ -49,9 +55,12 @@ export async function writeBeat(db: D1Database, monitor: string, at: number) {
     .run();
 }
 
-// One batch per run, which also drops the buckets older than the page shows.
+// One batch per run, which also drops the buckets and incidents older than
+// the page shows. An incident opens when no check of the run passed and ends
+// when the newest passed, the same rule the alerts follow.
 export async function record(db: D1Database, tallies: Tally[], at: number) {
   const bucket = bucketStart(at);
+  const oldest = bucket - HISTORY_BUCKETS * BUCKET_MS;
 
   await db.batch([
     ...tallies.flatMap((t) => [
@@ -69,22 +78,52 @@ export async function record(db: D1Database, tallies: Tally[], at: number) {
            SET up = up + excluded.up, total = total + excluded.total`,
         )
         .bind(bucket, t.monitor, t.ups, t.checks),
+      ...incident(db, t, at),
     ]),
-    db
-      .prepare("DELETE FROM buckets WHERE start < ?1")
-      .bind(bucket - HISTORY_BUCKETS * BUCKET_MS),
+    db.prepare("DELETE FROM buckets WHERE start < ?1").bind(oldest),
+    db.prepare("DELETE FROM incidents WHERE ended < ?1").bind(oldest),
   ]);
+}
+
+function incident(db: D1Database, t: Tally, at: number): D1PreparedStatement[] {
+  if (t.ups === 0) {
+    return [
+      db
+        .prepare(
+          `INSERT INTO incidents (monitor, started) VALUES (?1, ?2)
+           ON CONFLICT DO NOTHING`,
+        )
+        .bind(t.monitor, at),
+    ];
+  }
+  if (t.up) {
+    return [
+      db
+        .prepare(
+          "UPDATE incidents SET ended = ?2 WHERE monitor = ?1 AND ended IS NULL",
+        )
+        .bind(t.monitor, at),
+    ];
+  }
+
+  return [];
 }
 
 export async function readStatus(
   db: D1Database,
   since: number,
-): Promise<{ latest: Latest[]; buckets: Bucket[] }> {
-  const [latest, buckets] = await db.batch<Record<string, unknown>>([
+): Promise<{ latest: Latest[]; buckets: Bucket[]; incidents: Incident[] }> {
+  const [latest, buckets, incidents] = await db.batch<Record<string, unknown>>([
     db.prepare("SELECT monitor, up, detail, at FROM latest"),
     db
       .prepare(
         "SELECT start, monitor, up, total FROM buckets WHERE start >= ?1",
+      )
+      .bind(since),
+    db
+      .prepare(
+        `SELECT monitor, started, ended FROM incidents
+         WHERE ended IS NULL OR ended >= ?1 ORDER BY started DESC`,
       )
       .bind(since),
   ]);
@@ -92,6 +131,7 @@ export async function readStatus(
   return {
     latest: latest.results as Latest[],
     buckets: buckets.results as Bucket[],
+    incidents: incidents.results as Incident[],
   };
 }
 

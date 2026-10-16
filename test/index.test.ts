@@ -6,6 +6,8 @@ const BASE = "https://status.test";
 const ISSUES = "https://api.github.com/repos/nca-apprentices/infra/issues";
 const ISSUE = 7;
 const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const MINUTE_MS = 60 * 1000;
 
 interface Monitor {
   id: string;
@@ -119,6 +121,91 @@ describe("sites", () => {
     const { ncaleague } = await monitors();
     expect(ncaleague.up).toBe(false);
     expect(ncaleague.detail).toMatch(/^302/);
+  });
+});
+
+describe("status", () => {
+  it("tells browsers not to cache it", async () => {
+    expect((await get("/api/status")).headers.get("Cache-Control")).toBe(
+      "no-store",
+    );
+  });
+});
+
+describe("history", () => {
+  it("keeps 90 days of daily buckets", async () => {
+    await cron(200, Date.now() - 90 * DAY_MS);
+    await cron(200, Date.now() - 89 * DAY_MS);
+    await cron(200);
+
+    const body = await (
+      await get("/api/status")
+    ).json<{
+      bucketMs: number;
+      monitors: { buckets: unknown[] }[];
+    }>();
+    expect(body.bucketMs).toBe(DAY_MS);
+    expect(body.monitors[0].buckets).toHaveLength(2);
+  });
+});
+
+describe("incidents", () => {
+  interface Incident {
+    monitor: string;
+    started: number;
+    ended: number | null;
+  }
+
+  async function incidents(monitor: string): Promise<Incident[]> {
+    const body = await (
+      await get("/api/status")
+    ).json<{
+      incidents: Incident[];
+    }>();
+    return body.incidents.filter((i) => i.monitor === monitor);
+  }
+
+  it("record when an outage started and ended", async () => {
+    const start = Date.now();
+    await cron(500, start);
+    await cron(500, start + MINUTE_MS);
+    await cron(200, start + 2 * MINUTE_MS);
+
+    expect(await incidents("ncaleague")).toEqual([
+      { monitor: "ncaleague", started: start, ended: start + 2 * MINUTE_MS },
+    ]);
+  });
+
+  it("stay open while the outage lasts", async () => {
+    const start = Date.now();
+    await cron(500, start);
+
+    expect(await incidents("ncaleague")).toEqual([
+      { monitor: "ncaleague", started: start, ended: null },
+    ]);
+  });
+
+  it("open once when two runs overlap", async () => {
+    await Promise.all([cron(500), cron(500)]);
+
+    expect(await incidents("ncaleague")).toHaveLength(1);
+  });
+
+  it("cover the 90 days of the bars", async () => {
+    const now = Date.now();
+    await cron(500, now - 91 * DAY_MS);
+    await cron(200, now - 91 * DAY_MS + MINUTE_MS);
+    await cron(500, now - 8 * DAY_MS);
+    await cron(200, now - 8 * DAY_MS + MINUTE_MS);
+    await cron(200, now);
+
+    expect(await incidents("ncaleague")).toEqual([
+      {
+        monitor: "ncaleague",
+        started: now - 8 * DAY_MS,
+        ended: now - 8 * DAY_MS + MINUTE_MS,
+      },
+    ]);
   });
 });
 
