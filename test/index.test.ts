@@ -5,6 +5,7 @@ import worker from "../src/index";
 const BASE = "https://status.test";
 const ISSUES = "https://api.github.com/repos/nca-apprentices/infra/issues";
 const ISSUE = 7;
+const HOUR_MS = 60 * 60 * 1000;
 
 interface Monitor {
   id: string;
@@ -40,9 +41,13 @@ async function monitors(): Promise<Record<string, Monitor>> {
   return Object.fromEntries(body.monitors.map((m) => [m.id, m]));
 }
 
-// Runs one cron run. `site` gives the status of the nth request to a site,
-// counted from 0, so a run can fail some checks and pass others.
-async function cron(site: number | ((n: number) => number)) {
+// Runs one cron run at `scheduledTime`. `site` gives the status of the nth
+// request to a site, counted from 0, so a run can fail some checks and pass
+// others.
+async function cron(
+  site: number | ((n: number) => number),
+  scheduledTime = Date.now(),
+) {
   const answer = typeof site === "number" ? () => site : site;
   let n = 0;
 
@@ -60,11 +65,15 @@ async function cron(site: number | ((n: number) => number)) {
 
     return new Response(null, { status: answer(n++) });
   });
-  await worker.scheduled(createScheduledController(), env);
+  await worker.scheduled(createScheduledController({ scheduledTime }), env);
 }
 
 function opened(): Call[] {
   return github.filter((c) => c.method === "POST" && c.url === ISSUES);
+}
+
+function states(): unknown[] {
+  return github.filter((c) => c.method === "PATCH").map((c) => c.body.state);
 }
 
 beforeEach(() => {
@@ -149,5 +158,31 @@ describe("alerts", () => {
       `${ISSUES}/${ISSUE}`,
     ]);
     expect(closed[0].body.state).toBe("closed");
+  });
+
+  it("reopen the last issue for an outage within the hour", async () => {
+    await cron(500);
+    await cron(200);
+    github = [];
+    await cron(500);
+
+    expect(opened()).toEqual([]);
+    expect(states()).toEqual(["open", "open"]);
+  });
+
+  it("open a new issue for an outage an hour later", async () => {
+    const start = Date.now();
+    await cron(500, start);
+    await cron(200, start);
+    github = [];
+    await cron(500, start + HOUR_MS);
+
+    expect(opened()).toHaveLength(2);
+  });
+
+  it("open one issue when two runs overlap", async () => {
+    await Promise.all([cron(500), cron(500)]);
+
+    expect(opened()).toHaveLength(2);
   });
 });

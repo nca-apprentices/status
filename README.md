@@ -11,7 +11,7 @@ monitor of the cluster. A Cloudflare Worker on the Free plan checks:
 - Every minute, the heartbeats. Alertmanager posts the always-firing
   `Watchdog` to `/heartbeat/alerts` every minute. Five minutes without a post
   means vmalert, vmsingle, or Alertmanager is down. A new heartbeat is one
-  entry in `HEARTBEATS` in `src/index.ts`.
+  entry in `HEARTBEATS` in `src/monitors.ts`.
 
 Cron fires once a minute at most, so each run checks the sites in six rounds
 and writes D1 once.
@@ -22,7 +22,9 @@ The page in `public/` reads them from `/api/status`.
 
 A monitor with no passing check in a run opens an issue labeled `alert` in
 nca-apprentices/infra, next to the cluster's own alerts. The issue closes
-when the monitor's newest check passes. `outage` in D1 keeps the open issues.
+when the monitor's newest check passes. A monitor opens at most one issue an
+hour: an outage within an hour of its last issue reopens that issue. `issue`
+in D1 keeps each monitor's newest issue.
 
 ## Free plan budget
 
@@ -80,6 +82,6 @@ Workers Scripts Edit and D1 Edit, and the repository variable
 
 ## Add a check
 
-A site is one entry in `SITES` in `src/index.ts`, and a heartbeat one entry in
-`HEARTBEATS`. A heartbeat's sender posts to `/heartbeat/<id>` with
+A site is one entry in `SITES` in `src/monitors.ts`, and a heartbeat one
+entry in `HEARTBEATS`. A heartbeat's sender posts to `/heartbeat/<id>` with
 `Authorization: Bearer <token>`.
