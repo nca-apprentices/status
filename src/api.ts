@@ -7,7 +7,7 @@ import {
   readStatus,
   writeBeat,
 } from "./db";
-import { HEARTBEATS, MINUTE_MS, MONITORS } from "./monitors";
+import { HEARTBEATS, MONITORS } from "./monitors";
 
 const HTTP_NO_CONTENT = 204;
 const HTTP_UNAUTHORIZED = 401;
@@ -18,10 +18,6 @@ const HEARTBEAT_PATH = /^\/heartbeat\/([a-z-]+)$/;
 // The status changes once a minute, so viewers in one data center share a
 // response for this long and D1 reads stay flat however many watch.
 const STATUS_MAX_AGE_S = 30;
-
-// The page lists the incidents of this rolling window under the bars. The
-// bars' tooltips show those of all the history.
-const INCIDENT_WINDOW_MS = 7 * 24 * 60 * MINUTE_MS;
 
 export async function handle(
   request: Request,
@@ -126,7 +122,6 @@ async function status(db: D1Database) {
     bucketMs: BUCKET_MS,
     count: HISTORY_BUCKETS,
     monitors,
-    incidentMs: INCIDENT_WINDOW_MS,
     incidents,
   };
 }

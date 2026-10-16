@@ -7,6 +7,8 @@ const DOWN_BELOW = 0.999;
 const UPTIME_DIGITS = 3;
 
 const tip = document.getElementById("tip");
+// The tooltip content of each bar, built with the bar.
+const tips = new WeakMap();
 
 function state(up) {
   if (up === null) {
@@ -69,24 +71,53 @@ function lasted(i) {
   return duration((i.ended ?? Date.now()) - i.started);
 }
 
-// The tooltip of one day's bar: its uptime and the incidents that touched it.
+function element(tag, text) {
+  const el = document.createElement(tag);
+  el.textContent = text;
+  return el;
+}
+
+// The tooltip of one day's bar: the date, the uptime, and a table of the
+// incidents that touched the day. The label reads the same as text.
 function dayTip(start, length, bucket, incidents) {
+  const date = element("strong", day(start));
+
   if (!bucket) {
-    return `${day(start)}\nNo data exists for this day.`;
+    const text = "No data exists for this day.";
+    return {
+      label: `${day(start)}. ${text}`,
+      nodes: [date, element("p", text)],
+    };
   }
 
   const touched = incidents.filter(
     (i) => i.started < start + length && (i.ended ?? Infinity) >= start,
   );
   if (touched.length === 0 && bucket.up === bucket.total) {
-    return `${day(start)}\nNo downtime recorded on this day.`;
+    const text = "No downtime recorded on this day.";
+    return {
+      label: `${day(start)}. ${text}`,
+      nodes: [date, element("p", text)],
+    };
   }
 
-  return [
-    day(start),
-    `${percent(bucket.up, bucket.total)} up`,
-    ...touched.map((i) => `Down ${span(i)}, ${lasted(i)}`),
-  ].join("\n");
+  const up = `${percent(bucket.up, bucket.total)} up`;
+  const nodes = [date, element("p", up)];
+  if (touched.length > 0) {
+    const table = document.createElement("table");
+    table
+      .createTHead()
+      .insertRow()
+      .append(element("th", "Down"), element("th", "Duration"));
+    const body = table.createTBody();
+    for (const i of touched) {
+      body.insertRow().append(element("td", span(i)), element("td", lasted(i)));
+    }
+    nodes.push(table);
+  }
+
+  const downs = touched.map((i) => `Down ${span(i)}, ${lasted(i)}`);
+  return { label: [day(start), up, ...downs].join(". "), nodes };
 }
 
 // One bar per bucket, oldest first, grey where nothing was checked.
@@ -99,8 +130,9 @@ function bars(status, m, incidents) {
     const bucket = byStart.get(start);
     const bar = document.createElement("span");
     bar.style.background = bucketColor(bucket);
-    bar.dataset.tip = dayTip(start, status.bucketMs, bucket, incidents);
-    bar.setAttribute("aria-label", bar.dataset.tip);
+    const { label, nodes } = dayTip(start, status.bucketMs, bucket, incidents);
+    bar.setAttribute("aria-label", label);
+    tips.set(bar, nodes);
     spans.push(bar);
   }
   return spans;
@@ -139,56 +171,9 @@ function card(status, m) {
   return el;
 }
 
-function element(tag, text) {
-  const el = document.createElement(tag);
-  el.textContent = text;
-  return el;
-}
-
-// One heading per day of the incident window, newest first, with a table of
-// the incidents that started that day.
-function pastIncidents(status) {
-  const names = new Map(status.monitors.map((m) => [m.id, m.name]));
-  const days = Math.round(status.incidentMs / status.bucketMs);
-  const nodes = [];
-
-  for (let d = 0; d < days; d++) {
-    const start = status.newest - d * status.bucketMs;
-    const started = status.incidents.filter(
-      (i) => i.started >= start && i.started < start + status.bucketMs,
-    );
-    nodes.push(element("h3", day(start)));
-
-    if (started.length === 0) {
-      const none = element("p", "No incidents reported.");
-      none.className = "none";
-      nodes.push(none);
-      continue;
-    }
-
-    const table = document.createElement("table");
-    const head = table.createTHead().insertRow();
-    for (const label of ["Service", "Down", "Duration"]) {
-      head.append(element("th", label));
-    }
-    const body = table.createTBody();
-    for (const i of started) {
-      body
-        .insertRow()
-        .append(
-          element("td", names.get(i.monitor) ?? i.monitor),
-          element("td", span(i)),
-          element("td", lasted(i)),
-        );
-    }
-    nodes.push(table);
-  }
-  return nodes;
-}
-
 // Centers the tooltip below the bar and keeps it inside the window.
 function showTip(bar) {
-  tip.textContent = bar.dataset.tip;
+  tip.replaceChildren(...tips.get(bar));
   tip.hidden = false;
 
   const rect = bar.getBoundingClientRect();
@@ -229,9 +214,6 @@ async function render() {
     document
       .getElementById("monitors")
       .replaceChildren(...status.monitors.map((m) => card(status, m)));
-    document
-      .getElementById("incidents")
-      .replaceChildren(...pastIncidents(status));
   } catch {
     summary.textContent = "Status unavailable";
     summary.style.background = "var(--none)";

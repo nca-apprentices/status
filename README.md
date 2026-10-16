@@ -23,7 +23,7 @@ newest check passed.
 
 The page in `public/` reads them from `/api/status`, which Cloudflare caches
 for 30 seconds, and refreshes only while its tab is visible. It shows a bar
-for each of the 90 days and lists the incidents that ended in the last 7.
+for each of the 90 days, and a bar's tooltip lists the day's incidents.
 
 A monitor with no passing check in a run opens an issue labeled `alert` in
 nca-apprentices/infra, next to the cluster's own alerts. The issue closes
