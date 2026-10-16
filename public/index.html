@@ -12,13 +12,16 @@
       <h1>nca-apprentices status</h1>
       <div id="summary">Loading…</div>
       <div id="monitors"></div>
-      <h2>Incidents</h2>
-      <ul id="incidents"></ul>
+      <details open>
+        <summary>Past incidents</summary>
+        <div id="incidents"></div>
+      </details>
       <footer>
-        Checked from Cloudflare every 10 seconds. Each bar is one UTC day of the
-        last 90 days. Source on
+        Checked from Cloudflare every 10 seconds. Days and times are UTC. Source
+        on
         <a href="https://github.com/nca-apprentices/status">GitHub</a>.
       </footer>
     </main>
+    <div id="tip" role="tooltip" hidden></div>
   </body>
 </html>

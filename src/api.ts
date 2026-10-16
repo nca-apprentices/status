@@ -19,8 +19,8 @@ const HEARTBEAT_PATH = /^\/heartbeat\/([a-z-]+)$/;
 // response for this long and D1 reads stay flat however many watch.
 const STATUS_MAX_AGE_S = 30;
 
-// The page lists the incidents that ended in this rolling window, while its
-// bars cover all the history.
+// The page lists the incidents of this rolling window under the bars. The
+// bars' tooltips show those of all the history.
 const INCIDENT_WINDOW_MS = 7 * 24 * 60 * MINUTE_MS;
 
 export async function handle(
@@ -104,7 +104,6 @@ async function status(db: D1Database) {
   const { latest, buckets, incidents } = await readStatus(
     db,
     newest - (HISTORY_BUCKETS - 1) * BUCKET_MS,
-    Date.now() - INCIDENT_WINDOW_MS,
   );
 
   const monitors = MONITORS.map(({ id, name }) => {

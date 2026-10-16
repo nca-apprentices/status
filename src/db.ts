@@ -112,7 +112,6 @@ function incident(db: D1Database, t: Tally, at: number): D1PreparedStatement[] {
 export async function readStatus(
   db: D1Database,
   since: number,
-  incidentsSince: number,
 ): Promise<{ latest: Latest[]; buckets: Bucket[]; incidents: Incident[] }> {
   const [latest, buckets, incidents] = await db.batch<Record<string, unknown>>([
     db.prepare("SELECT monitor, up, detail, at FROM latest"),
@@ -126,7 +125,7 @@ export async function readStatus(
         `SELECT monitor, started, ended FROM incidents
          WHERE ended IS NULL OR ended >= ?1 ORDER BY started DESC`,
       )
-      .bind(incidentsSince),
+      .bind(since),
   ]);
 
   return {

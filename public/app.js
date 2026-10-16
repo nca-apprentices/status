@@ -6,8 +6,14 @@ const DOWN_BELOW = 0.999;
 // Three decimals tell 99.99% from 99.999%.
 const UPTIME_DIGITS = 3;
 
-const color = (up) =>
-  up === null ? "var(--none)" : up ? "var(--up)" : "var(--down)";
+const tip = document.getElementById("tip");
+
+function state(up) {
+  if (up === null) {
+    return ["Not checked yet", "var(--none)"];
+  }
+  return up ? ["Operational", "var(--up)"] : ["Down", "var(--down)"];
+}
 
 function bucketColor(bucket) {
   if (!bucket) {
@@ -21,63 +27,26 @@ function bucketColor(bucket) {
     : "var(--partial)";
 }
 
-// One bar per bucket, oldest first, grey where nothing was checked.
-function bars(status, buckets) {
-  const byStart = new Map(buckets.map((b) => [b.start, b]));
-  const spans = [];
-
-  for (let i = status.count - 1; i >= 0; i--) {
-    const start = status.newest - i * status.bucketMs;
-    const bucket = byStart.get(start);
-    const time = new Date(start).toLocaleDateString([], {
-      month: "short",
-      day: "numeric",
-      timeZone: "UTC",
-    });
-    const span = document.createElement("span");
-    span.style.background = bucketColor(bucket);
-    span.title = bucket
-      ? `${time}: ${percent(bucket.up, bucket.total)} up`
-      : `${time}: no data`;
-    spans.push(span);
-  }
-  return spans;
-}
-
-function uptime(buckets) {
-  const up = buckets.reduce((n, b) => n + b.up, 0);
-  const total = buckets.reduce((n, b) => n + b.total, 0);
-  return total ? percent(up, total) : "–";
-}
-
 function percent(up, total) {
   return `${((100 * up) / total).toFixed(UPTIME_DIGITS)}%`;
 }
 
-function card(status, m) {
-  const el = document.createElement("section");
-  el.className = "monitor";
-  el.style.setProperty("--state", color(m.up));
-  el.innerHTML = `
-    <div class="head">
-      <span class="name"></span>
-      <span class="uptime"></span>
-    </div>
-    <div class="detail"></div>
-    <div class="bars"></div>`;
-  el.querySelector(".name").textContent = m.name;
-  el.querySelector(".uptime").textContent = uptime(m.buckets);
-  el.querySelector(".detail").textContent = m.detail;
-  el.querySelector(".bars").append(...bars(status, m.buckets));
-  return el;
-}
-
-function when(at) {
-  return new Date(at).toLocaleString([], {
+// Days and times are UTC, the days D1 counts the checks in.
+function day(at) {
+  return new Date(at).toLocaleDateString([], {
     month: "short",
     day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function clock(at) {
+  return new Date(at).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: "UTC",
   });
 }
 
@@ -90,28 +59,159 @@ function duration(ms) {
   return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
-// Newest first, as the API sends them. An open incident has no end yet.
-function incidents(status) {
-  const names = new Map(status.monitors.map((m) => [m.id, m.name]));
-  const days = status.incidentMs / (24 * 60 * MINUTE_MS);
+// An open incident has no end yet and lasts until now.
+function span(i) {
+  const end = i.ended === null ? "ongoing" : clock(i.ended);
+  return `${clock(i.started)} to ${end}`;
+}
 
-  if (status.incidents.length === 0) {
-    const li = document.createElement("li");
-    li.textContent = `No incidents in the last ${days} days.`;
-    return [li];
+function lasted(i) {
+  return duration((i.ended ?? Date.now()) - i.started);
+}
+
+// The tooltip of one day's bar: its uptime and the incidents that touched it.
+function dayTip(start, length, bucket, incidents) {
+  if (!bucket) {
+    return `${day(start)}\nNo data exists for this day.`;
   }
 
-  return status.incidents.map((i) => {
-    const li = document.createElement("li");
-    const name = names.get(i.monitor) ?? i.monitor;
-    li.textContent =
-      i.ended === null
-        ? `${name} down since ${when(i.started)}`
-        : `${name} down ${when(i.started)} to ${when(i.ended)}, ` +
-          duration(i.ended - i.started);
-    return li;
-  });
+  const touched = incidents.filter(
+    (i) => i.started < start + length && (i.ended ?? Infinity) >= start,
+  );
+  if (touched.length === 0 && bucket.up === bucket.total) {
+    return `${day(start)}\nNo downtime recorded on this day.`;
+  }
+
+  return [
+    day(start),
+    `${percent(bucket.up, bucket.total)} up`,
+    ...touched.map((i) => `Down ${span(i)}, ${lasted(i)}`),
+  ].join("\n");
 }
+
+// One bar per bucket, oldest first, grey where nothing was checked.
+function bars(status, m, incidents) {
+  const byStart = new Map(m.buckets.map((b) => [b.start, b]));
+  const spans = [];
+
+  for (let i = status.count - 1; i >= 0; i--) {
+    const start = status.newest - i * status.bucketMs;
+    const bucket = byStart.get(start);
+    const bar = document.createElement("span");
+    bar.style.background = bucketColor(bucket);
+    bar.dataset.tip = dayTip(start, status.bucketMs, bucket, incidents);
+    bar.setAttribute("aria-label", bar.dataset.tip);
+    spans.push(bar);
+  }
+  return spans;
+}
+
+function uptime(buckets) {
+  const up = buckets.reduce((n, b) => n + b.up, 0);
+  const total = buckets.reduce((n, b) => n + b.total, 0);
+  return total ? `${percent(up, total)} uptime` : "No data";
+}
+
+function card(status, m) {
+  const [word, color] = state(m.up);
+  const incidents = status.incidents.filter((i) => i.monitor === m.id);
+  const el = document.createElement("section");
+  el.className = "monitor";
+  el.style.setProperty("--state", color);
+  el.innerHTML = `
+    <div class="head">
+      <span class="name"></span>
+      <span class="state"></span>
+    </div>
+    <div class="detail"></div>
+    <div class="bars"></div>
+    <div class="axis">
+      <span class="oldest"></span>
+      <span class="uptime"></span>
+      <span>Today</span>
+    </div>`;
+  el.querySelector(".name").textContent = m.name;
+  el.querySelector(".state").textContent = word;
+  el.querySelector(".detail").textContent = m.detail;
+  el.querySelector(".bars").append(...bars(status, m, incidents));
+  el.querySelector(".oldest").textContent = `${status.count} days ago`;
+  el.querySelector(".uptime").textContent = uptime(m.buckets);
+  return el;
+}
+
+function element(tag, text) {
+  const el = document.createElement(tag);
+  el.textContent = text;
+  return el;
+}
+
+// One heading per day of the incident window, newest first, with a table of
+// the incidents that started that day.
+function pastIncidents(status) {
+  const names = new Map(status.monitors.map((m) => [m.id, m.name]));
+  const days = Math.round(status.incidentMs / status.bucketMs);
+  const nodes = [];
+
+  for (let d = 0; d < days; d++) {
+    const start = status.newest - d * status.bucketMs;
+    const started = status.incidents.filter(
+      (i) => i.started >= start && i.started < start + status.bucketMs,
+    );
+    nodes.push(element("h3", day(start)));
+
+    if (started.length === 0) {
+      const none = element("p", "No incidents reported.");
+      none.className = "none";
+      nodes.push(none);
+      continue;
+    }
+
+    const table = document.createElement("table");
+    const head = table.createTHead().insertRow();
+    for (const label of ["Service", "Down", "Duration"]) {
+      head.append(element("th", label));
+    }
+    const body = table.createTBody();
+    for (const i of started) {
+      body
+        .insertRow()
+        .append(
+          element("td", names.get(i.monitor) ?? i.monitor),
+          element("td", span(i)),
+          element("td", lasted(i)),
+        );
+    }
+    nodes.push(table);
+  }
+  return nodes;
+}
+
+// Centers the tooltip below the bar and keeps it inside the window.
+function showTip(bar) {
+  tip.textContent = bar.dataset.tip;
+  tip.hidden = false;
+
+  const rect = bar.getBoundingClientRect();
+  const width = tip.offsetWidth;
+  const max = document.documentElement.clientWidth - width - 8;
+  const left = Math.min(
+    Math.max(8, rect.left + rect.width / 2 - width / 2),
+    max,
+  );
+  tip.style.left = `${left + window.scrollX}px`;
+  tip.style.top = `${rect.bottom + window.scrollY + 8}px`;
+}
+
+// Pointer events cover a mouse's hover and a finger's tap alike.
+document.addEventListener("pointerover", (event) => {
+  const bar = event.target.closest(".bars span");
+
+  if (bar) {
+    showTip(bar);
+  } else {
+    tip.hidden = true;
+  }
+});
 
 async function render() {
   const summary = document.getElementById("summary");
@@ -129,7 +229,9 @@ async function render() {
     document
       .getElementById("monitors")
       .replaceChildren(...status.monitors.map((m) => card(status, m)));
-    document.getElementById("incidents").replaceChildren(...incidents(status));
+    document
+      .getElementById("incidents")
+      .replaceChildren(...pastIncidents(status));
   } catch {
     summary.textContent = "Status unavailable";
     summary.style.background = "var(--none)";
