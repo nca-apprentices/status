@@ -15,6 +15,10 @@ const HTTP_NOT_FOUND = 404;
 
 const HEARTBEAT_PATH = /^\/heartbeat\/([a-z-]+)$/;
 
+// The status changes once a minute, so viewers in one data center share a
+// response for this long and D1 reads stay flat however many watch.
+const STATUS_MAX_AGE_S = 30;
+
 export async function handle(
   request: Request,
   db: D1Database,
@@ -27,7 +31,7 @@ export async function handle(
     return receiveHeartbeat(request, db, token, beat);
   }
   if (request.method === "GET" && pathname === "/api/status") {
-    return Response.json(await status(db));
+    return cachedStatus(request, db);
   }
 
   return new Response("Not found", { status: HTTP_NOT_FOUND });
@@ -66,11 +70,29 @@ async function sameSecret(a: string, b: string): Promise<boolean> {
   return crypto.subtle.timingSafeEqual(hashA, hashB);
 }
 
+async function cachedStatus(
+  request: Request,
+  db: D1Database,
+): Promise<Response> {
+  const cached = await caches.default.match(request);
+
+  if (cached) {
+    return cached;
+  }
+
+  const response = Response.json(await status(db), {
+    headers: { "Cache-Control": `public, max-age=${STATUS_MAX_AGE_S}` },
+  });
+  await caches.default.put(request, response.clone());
+
+  return response;
+}
+
 // The page draws one bar per bucket from these, so the bucket size lives
 // here only.
 async function status(db: D1Database) {
   const newest = bucketStart(Date.now());
-  const { latest, buckets } = await readStatus(
+  const { latest, buckets, incidents } = await readStatus(
     db,
     newest - (HISTORY_BUCKETS - 1) * BUCKET_MS,
   );
@@ -90,5 +112,11 @@ async function status(db: D1Database) {
     };
   });
 
-  return { newest, bucketMs: BUCKET_MS, count: HISTORY_BUCKETS, monitors };
+  return {
+    newest,
+    bucketMs: BUCKET_MS,
+    count: HISTORY_BUCKETS,
+    monitors,
+    incidents,
+  };
 }

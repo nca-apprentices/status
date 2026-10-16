@@ -16,9 +16,11 @@ monitor of the cluster. A Cloudflare Worker on the Free plan checks:
 Cron fires once a minute at most, so each run checks the sites in six rounds
 and writes D1 once.
 
-D1 keeps the newest check of each monitor and one row per monitor and 2
-hours, for the last 7 days.
-The page in `public/` reads them from `/api/status`.
+D1 keeps the newest check of each monitor, one row per monitor and UTC day,
+and each incident's start and end, for the last 90 days. An incident starts
+with the first run in which no check passed and ends with the first run whose
+newest check passed. The page in `public/` reads them from `/api/status`, which Cloudflare caches
+for 30 seconds, and refreshes only while its tab is visible.
 
 A monitor with no passing check in a run opens an issue labeled `alert` in
 nca-apprentices/infra, next to the cluster's own alerts. The issue closes
@@ -32,7 +34,7 @@ in D1 keeps each monitor's newest issue.
 | --------------- | --------------- | --------------------------------------- |
 | Worker requests | 100,000 a day   | 1,440 per heartbeat, plus page views    |
 | D1 rows written | 100,000 a day   | About 15,000                            |
-| D1 rows read    | 5,000,000 a day | About 260 per page view                 |
+| D1 rows read    | 5,000,000 a day | About 300 per data center every 30 s    |
 | Cron triggers   | 5 per account   | 1                                       |
 | Subrequests     | 50 per run      | 12, up to 24 with retries, 2 per alert  |
 | CPU time        | 10 ms per run   | Waiting on `fetch` and D1 doesn't count |

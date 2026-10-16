@@ -7,6 +7,8 @@ export default defineConfig(async () => ({
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
+        // Each test reads its own database, never a cached status.
+        cache: false,
         bindings: {
           HEARTBEAT_TOKEN: "test",
           GITHUB_TOKEN: "test",
