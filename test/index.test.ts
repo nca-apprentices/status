@@ -124,6 +124,14 @@ describe("sites", () => {
   });
 });
 
+describe("status", () => {
+  it("tells browsers not to cache it", async () => {
+    expect((await get("/api/status")).headers.get("Cache-Control")).toBe(
+      "no-store",
+    );
+  });
+});
+
 describe("history", () => {
   it("keeps 90 days of daily buckets", async () => {
     await cron(200, Date.now() - 90 * DAY_MS);

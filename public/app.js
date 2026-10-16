@@ -117,7 +117,8 @@ async function render() {
   const summary = document.getElementById("summary");
 
   try {
-    const response = await fetch("/api/status");
+    // Skips a response a browser cached for hours before the API sent no-store.
+    const response = await fetch("/api/status", { cache: "no-store" });
     const status = await response.json();
     const down = status.monitors.filter((m) => m.up === false);
 

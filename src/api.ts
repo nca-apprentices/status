@@ -70,22 +70,27 @@ async function sameSecret(a: string, b: string): Promise<boolean> {
   return crypto.subtle.timingSafeEqual(hashA, hashB);
 }
 
+// Only the edge cache keeps the status. The zone's browser cache TTL raises
+// any max-age sent to browsers to hours, so they get no-store instead.
 async function cachedStatus(
   request: Request,
   db: D1Database,
 ): Promise<Response> {
-  const cached = await caches.default.match(request);
+  let response = await caches.default.match(request);
 
-  if (cached) {
-    return cached;
+  if (!response) {
+    response = Response.json(await status(db), {
+      headers: { "Cache-Control": `max-age=${STATUS_MAX_AGE_S}` },
+    });
+    await caches.default.put(request, response.clone());
   }
 
-  const response = Response.json(await status(db), {
-    headers: { "Cache-Control": `public, max-age=${STATUS_MAX_AGE_S}` },
+  return new Response(response.body, {
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
   });
-  await caches.default.put(request, response.clone());
-
-  return response;
 }
 
 // The page draws one bar per bucket from these, so the bucket size lives
