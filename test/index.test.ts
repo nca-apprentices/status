@@ -190,6 +190,22 @@ describe("incidents", () => {
 
     expect(await incidents("ncaleague")).toHaveLength(1);
   });
+
+  it("show only those of the last 7 days", async () => {
+    const now = Date.now();
+    await cron(500, now - 8 * DAY_MS);
+    await cron(200, now - 8 * DAY_MS + MINUTE_MS);
+    await cron(500, now - 6 * DAY_MS);
+    await cron(200, now - 6 * DAY_MS + MINUTE_MS);
+
+    expect(await incidents("ncaleague")).toEqual([
+      {
+        monitor: "ncaleague",
+        started: now - 6 * DAY_MS,
+        ended: now - 6 * DAY_MS + MINUTE_MS,
+      },
+    ]);
+  });
 });
 
 describe("alerts", () => {

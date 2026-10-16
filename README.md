@@ -19,8 +19,11 @@ and writes D1 once.
 D1 keeps the newest check of each monitor, one row per monitor and UTC day,
 and each incident's start and end, for the last 90 days. An incident starts
 with the first run in which no check passed and ends with the first run whose
-newest check passed. The page in `public/` reads them from `/api/status`, which Cloudflare caches
-for 30 seconds, and refreshes only while its tab is visible.
+newest check passed.
+
+The page in `public/` reads them from `/api/status`, which Cloudflare caches
+for 30 seconds, and refreshes only while its tab is visible. It shows a bar
+for each of the 90 days and lists the incidents that ended in the last 7.
 
 A monitor with no passing check in a run opens an issue labeled `alert` in
 nca-apprentices/infra, next to the cluster's own alerts. The issue closes

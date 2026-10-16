@@ -93,7 +93,7 @@ function duration(ms) {
 // Newest first, as the API sends them. An open incident has no end yet.
 function incidents(status) {
   const names = new Map(status.monitors.map((m) => [m.id, m.name]));
-  const days = (status.count * status.bucketMs) / (24 * 60 * MINUTE_MS);
+  const days = status.incidentMs / (24 * 60 * MINUTE_MS);
 
   if (status.incidents.length === 0) {
     const li = document.createElement("li");
