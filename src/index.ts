@@ -4,7 +4,7 @@
 import { alert } from "./alerts";
 import { handle } from "./api";
 import { checkHeartbeats, checkSites } from "./checks";
-import { readBeats, record } from "./db";
+import { readBeats, readStreaks, record } from "./db";
 
 interface Env {
   DB: D1Database;
@@ -16,7 +16,7 @@ export default {
   async scheduled(controller, env) {
     const start = controller.scheduledTime;
     const tallies = [
-      ...(await checkSites(start)),
+      ...(await checkSites(start, await readStreaks(env.DB))),
       ...checkHeartbeats(await readBeats(env.DB), Date.now()),
     ];
 

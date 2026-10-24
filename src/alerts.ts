@@ -20,9 +20,9 @@ const GITHUB_TIMEOUT_MS = 4 * SECOND_MS;
 // for each outage after the first.
 const NEW_ISSUE_INTERVAL_MS = 60 * MINUTE_MS;
 
-// A monitor opens an issue once no check of the run passed, so one slow
-// round opens none, and closes it once its newest check passes. A GitHub
-// error leaves the issue as it was, and the next run tries again.
+// A monitor opens an issue once it is down at the end of a run, so a stall
+// shorter than its failure count opens none, and closes it once it is up. A
+// GitHub error leaves the issue as it was, and the next run tries again.
 export async function alert(
   db: D1Database,
   token: string,
@@ -35,7 +35,7 @@ export async function alert(
     const issue = issues.get(t.monitor);
 
     try {
-      if (!issue?.open && t.ups === 0) {
+      if (!issue?.open && !t.up) {
         await openIssue(db, token, t, issue, now);
       } else if (issue?.open && t.up) {
         await closeIssue(db, token, t, issue);

@@ -38,6 +38,17 @@ function beat(token: string, id = "alerts"): Promise<Response> {
   );
 }
 
+// The checks of today's bucket.
+async function bucket(id: string): Promise<{ up: number; total: number }> {
+  const body = await (
+    await get("/api/status")
+  ).json<{
+    monitors: { id: string; buckets: { up: number; total: number }[] }[];
+  }>();
+  const { up, total } = body.monitors.find((m) => m.id === id)!.buckets[0];
+  return { up, total };
+}
+
 async function monitors(): Promise<Record<string, Monitor>> {
   const body = await (await get("/api/status")).json<{ monitors: Monitor[] }>();
   return Object.fromEntries(body.monitors.map((m) => [m.id, m]));
@@ -121,6 +132,31 @@ describe("sites", () => {
     const { ncaleague } = await monitors();
     expect(ncaleague.up).toBe(false);
     expect(ncaleague.detail).toMatch(/^302/);
+  });
+
+  // Each failed round takes 4 requests, two attempts of two sites.
+  it("stay up through two failed rounds", async () => {
+    await cron((n) => (n < 8 ? 500 : 200));
+
+    expect((await monitors()).ncaleague.up).toBe(true);
+    expect(await bucket("ncaleague")).toEqual({ up: 6, total: 6 });
+  });
+
+  it("are down after three failed rounds", async () => {
+    // Three rounds pass with 2 requests each, then every request fails.
+    await cron((n) => (n < 6 ? 200 : 500));
+
+    expect((await monitors()).ncaleague.up).toBe(false);
+    expect(await bucket("ncaleague")).toEqual({ up: 5, total: 6 });
+  });
+
+  it("carry failed rounds into the next run", async () => {
+    const start = Date.now();
+    await cron((n) => (n < 8 ? 200 : 500), start);
+    await cron((n) => (n < 4 ? 500 : 200), start + MINUTE_MS);
+
+    expect((await monitors()).ncaleague.up).toBe(true);
+    expect(await bucket("ncaleague")).toEqual({ up: 11, total: 12 });
   });
 });
 
@@ -225,6 +261,18 @@ describe("alerts", () => {
     await cron((n) => (n < 4 ? 500 : 200));
 
     expect(github).toEqual([]);
+  });
+
+  it("open no issue for two failed rounds", async () => {
+    await cron((n) => (n < 8 ? 500 : 200));
+
+    expect(github).toEqual([]);
+  });
+
+  it("open an issue for three failed rounds", async () => {
+    await cron((n) => (n < 6 ? 200 : 500));
+
+    expect(opened()).toHaveLength(2);
   });
 
   it("open one issue per outage", async () => {

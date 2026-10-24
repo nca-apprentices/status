@@ -8,6 +8,10 @@ monitor of the cluster. A Cloudflare Worker on the Free plan checks:
   which passes through the server and vcs. Each must answer 200 within two
   tries of 4 seconds. A redirect counts as down. Workers Logs keeps each
   failed try.
+- An app is down once three checks in a row fail, 30 seconds. Stalls
+  between Cloudflare and the node hold requests for up to 20 seconds, and
+  their failed checks count as up. From the third failed check on, each
+  counts as down.
 - Every minute, the heartbeats. Alertmanager posts the always-firing
   `Watchdog` to `/heartbeat/alerts` every minute. Five minutes without a post
   means vmalert, vmsingle, or Alertmanager is down. A new heartbeat is one
@@ -18,16 +22,16 @@ and writes D1 once.
 
 D1 keeps the newest check of each monitor, one row per monitor and UTC day,
 and each incident's start and end, for the last 90 days. An incident starts
-with the first run in which no check passed and ends with the first run whose
-newest check passed.
+with the first run that ends with the monitor down and ends with the first run
+that ends with it up.
 
 The page in `public/` reads them from `/api/status`, which Cloudflare caches
 for 30 seconds, and refreshes only while its tab is visible. It shows a bar
 for each of the 90 days, and a bar's tooltip lists the day's incidents.
 
-A monitor with no passing check in a run opens an issue labeled `alert` in
+A monitor down at the end of a run opens an issue labeled `alert` in
 nca-apprentices/infra, next to the cluster's own alerts. The issue closes
-when the monitor's newest check passes. A monitor opens at most one issue an
+when a run ends with the monitor up. A monitor opens at most one issue an
 hour: an outage within an hour of its last issue reopens that issue. `issue`
 in D1 keeps each monitor's newest issue.
 

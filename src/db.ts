@@ -37,6 +37,16 @@ export function bucketStart(at: number): number {
   return Math.floor(at / BUCKET_MS) * BUCKET_MS;
 }
 
+export async function readStreaks(
+  db: D1Database,
+): Promise<Map<string, number>> {
+  const { results } = await db
+    .prepare("SELECT monitor, streak FROM latest")
+    .all<{ monitor: string; streak: number }>();
+
+  return new Map(results.map((r) => [r.monitor, r.streak]));
+}
+
 export async function readBeats(db: D1Database): Promise<Beat[]> {
   const { results } = await db
     .prepare("SELECT monitor, at FROM heartbeat")
@@ -56,8 +66,8 @@ export async function writeBeat(db: D1Database, monitor: string, at: number) {
 }
 
 // One batch per run, which also drops the buckets and incidents older than
-// the page shows. An incident opens when no check of the run passed and ends
-// when the newest passed, the same rule the alerts follow.
+// the page shows. An incident opens when the monitor is down at the end of
+// the run and ends when it is up, the same rule the alerts follow.
 export async function record(db: D1Database, tallies: Tally[], at: number) {
   const bucket = bucketStart(at);
   const oldest = bucket - HISTORY_BUCKETS * BUCKET_MS;
@@ -66,11 +76,13 @@ export async function record(db: D1Database, tallies: Tally[], at: number) {
     ...tallies.flatMap((t) => [
       db
         .prepare(
-          `INSERT INTO latest (monitor, up, detail, at) VALUES (?1, ?2, ?3, ?4)
+          `INSERT INTO latest (monitor, up, detail, at, streak)
+           VALUES (?1, ?2, ?3, ?4, ?5)
            ON CONFLICT (monitor) DO UPDATE
-           SET up = excluded.up, detail = excluded.detail, at = excluded.at`,
+           SET up = excluded.up, detail = excluded.detail, at = excluded.at,
+               streak = excluded.streak`,
         )
-        .bind(t.monitor, Number(t.up), t.detail, at),
+        .bind(t.monitor, Number(t.up), t.detail, at, t.streak),
       db
         .prepare(
           `INSERT INTO buckets (start, monitor, up, total) VALUES (?1, ?2, ?3, ?4)
@@ -86,7 +98,7 @@ export async function record(db: D1Database, tallies: Tally[], at: number) {
 }
 
 function incident(db: D1Database, t: Tally, at: number): D1PreparedStatement[] {
-  if (t.ups === 0) {
+  if (!t.up) {
     return [
       db
         .prepare(
@@ -96,17 +108,14 @@ function incident(db: D1Database, t: Tally, at: number): D1PreparedStatement[] {
         .bind(t.monitor, at),
     ];
   }
-  if (t.up) {
-    return [
-      db
-        .prepare(
-          "UPDATE incidents SET ended = ?2 WHERE monitor = ?1 AND ended IS NULL",
-        )
-        .bind(t.monitor, at),
-    ];
-  }
 
-  return [];
+  return [
+    db
+      .prepare(
+        "UPDATE incidents SET ended = ?2 WHERE monitor = ?1 AND ended IS NULL",
+      )
+      .bind(t.monitor, at),
+  ];
 }
 
 export async function readStatus(

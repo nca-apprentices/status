@@ -18,13 +18,15 @@ export interface Check {
   detail: string;
 }
 
-// One monitor's checks over one cron run.
+// One monitor's checks over one cron run. `streak` counts the failed checks
+// in a row that end it, carried across runs.
 export interface Tally {
   monitor: string;
   up: boolean;
   detail: string;
   ups: number;
   checks: number;
+  streak: number;
 }
 
 export const SECOND_MS = 1000;

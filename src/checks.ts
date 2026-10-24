@@ -21,7 +21,18 @@ const ROUND_INTERVAL_MS = 10 * SECOND_MS;
 const ROUNDS = MINUTE_MS / ROUND_INTERVAL_MS;
 const ATTEMPT_TIMEOUT_MS = 4 * SECOND_MS;
 
-export async function checkSites(start: number): Promise<Tally[]> {
+// A site is down once this many checks in a row fail, 30 seconds of rounds.
+// A stall between Cloudflare and the node holds requests for up to 20
+// seconds, so it never reaches the count, and an outage shows within a run.
+const SITE_DOWN_AFTER = 3;
+// The heartbeat's age already allows four missed sends, so one late check
+// is down.
+const HEARTBEAT_DOWN_AFTER = 1;
+
+export async function checkSites(
+  start: number,
+  streaks: Map<string, number>,
+): Promise<Tally[]> {
   const rounds: Check[][] = [];
 
   for (let i = 0; i < ROUNDS; i++) {
@@ -35,6 +46,8 @@ export async function checkSites(start: number): Promise<Tally[]> {
     tally(
       site.id,
       rounds.map((round) => round[i]),
+      streaks.get(site.id) ?? 0,
+      SITE_DOWN_AFTER,
     ),
   );
 }
@@ -52,12 +65,17 @@ export function checkHeartbeats(
     }
 
     const age = now - at;
-    return tally(monitor, [
-      {
-        up: age <= heartbeat.maxAgeMs,
-        detail: `Last heartbeat ${Math.round(age / SECOND_MS)} s ago`,
-      },
-    ]);
+    return tally(
+      monitor,
+      [
+        {
+          up: age <= heartbeat.maxAgeMs,
+          detail: `Last heartbeat ${Math.round(age / SECOND_MS)} s ago`,
+        },
+      ],
+      0,
+      HEARTBEAT_DOWN_AFTER,
+    );
   });
 }
 
@@ -102,16 +120,31 @@ async function attempt(site: Site): Promise<Check> {
   return check;
 }
 
-// The newest check gives the current state, and every check counts toward
-// the bucket's uptime.
-function tally(monitor: string, checks: Check[]): Tally {
-  const newest = checks[checks.length - 1];
+// A monitor is down once `downAfter` checks in a row failed, counting on
+// from `streak`, the previous run's. The failed checks before that count as
+// up. With 3, the failures F F F F count up, up, down, down.
+function tally(
+  monitor: string,
+  checks: Check[],
+  streak: number,
+  downAfter: number,
+): Tally {
+  let downs = 0;
+
+  for (const check of checks) {
+    streak = check.up ? 0 : streak + 1;
+
+    if (streak >= downAfter) {
+      downs++;
+    }
+  }
 
   return {
     monitor,
-    up: newest.up,
-    detail: newest.detail,
-    ups: checks.filter((c) => c.up).length,
+    up: streak < downAfter,
+    detail: checks[checks.length - 1].detail,
+    ups: checks.length - downs,
     checks: checks.length,
+    streak,
   };
 }
