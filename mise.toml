@@ -1,7 +1,7 @@
 # `mise tasks` lists the tasks, and `mise run <task>` runs one. Each installs
 # the dependencies first when package-lock.json has changed.
 [tools]
-node = "24.21.0"
+node = "26.13.0"
 
 [env]
 _.path = ["node_modules/.bin"]
